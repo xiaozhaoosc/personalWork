@@ -314,7 +314,7 @@ if (existsSync(dist)) {
   });
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`[server] 个人工作台 API 运行于 http://localhost:${PORT}`);
   console.log(`[server] WorkBuddy 用户目录: ${WORKBUDDY_USER_DIR}`);
 });

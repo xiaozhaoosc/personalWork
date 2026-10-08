@@ -1,3 +1,4 @@
+import './env.ts'; // 必须最先加载 .env，再创建数据库连接
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

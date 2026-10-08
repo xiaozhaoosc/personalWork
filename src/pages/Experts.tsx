@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { getJson, sendJson } from '../api';
 
+interface FilterOpts {
+  categoryId?: string;
+  query?: string;
+  isOpc?: boolean;
+}
+
 export default function Experts() {
   const [cats, setCats] = useState<any[]>([]);
   const [rows, setRows] = useState<any[]>([]);
@@ -10,11 +16,15 @@ export default function Experts() {
   const [sel, setSel] = useState<any>(null);
   const [msg, setMsg] = useState('');
 
-  async function load() {
+  // 显式传参，避免 stale closure：opts 优先于当前 state
+  async function load(opts?: FilterOpts) {
+    const query = opts?.query ?? q;
+    const categoryId = opts?.categoryId ?? activeCat;
+    const opc = opts?.isOpc ?? isOpc;
     const params = new URLSearchParams();
-    if (q) params.set('query', q);
-    if (activeCat) params.set('categoryId', activeCat);
-    if (isOpc) params.set('isOpc', '1');
+    if (query) params.set('query', query);
+    if (categoryId) params.set('categoryId', categoryId);
+    if (opc) params.set('isOpc', '1');
     setRows(await getJson('/experts?' + params.toString()));
   }
 
@@ -22,6 +32,16 @@ export default function Experts() {
     getJson('/expert-categories').then(setCats).catch(() => {});
     load();
   }, []);
+
+  function switchCat(id: string) {
+    setActiveCat(id);
+    load({ categoryId: id });
+  }
+
+  function toggleOpc(checked: boolean) {
+    setIsOpc(checked);
+    load({ isOpc: checked });
+  }
 
   async function openDetail(id: string) {
     setSel(await getJson('/experts/' + encodeURIComponent(id)));
@@ -38,24 +58,24 @@ export default function Experts() {
   return (
     <>
       <div className="page-head">
-        <div><h1>专家目录</h1><p>已收录 {rows.length} 位专家（共 {cats.length} 个分类）</p></div>
+        <div><h1>专家目录</h1><p>已匹配 {rows.length} 位专家（共 {cats.length} 个分类）</p></div>
       </div>
 
       <div className="toolbar">
         <input type="search" placeholder="搜索姓名 / 职业 / 描述" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <input type="checkbox" checked={isOpc} onChange={(e) => setIsOpc(e.target.checked)} /> 仅 OPC
+          <input type="checkbox" checked={isOpc} onChange={(e) => toggleOpc(e.target.checked)} /> 仅 OPC
         </label>
-        <button className="btn primary" onClick={load}>搜索</button>
+        <button className="btn primary" onClick={() => load()}>搜索</button>
       </div>
 
       <div style={{ display: 'flex', gap: 16 }}>
         <aside style={{ width: 180, flexShrink: 0 }} className="card" >
-          <div className="row-item" style={{ cursor: 'pointer', background: activeCat === '' ? 'var(--primary-weak)' : '#fff' }} onClick={() => { setActiveCat(''); setTimeout(load, 0); }}>
+          <div className="row-item" style={{ cursor: 'pointer', background: activeCat === '' ? 'var(--primary-weak)' : '#fff' }} onClick={() => switchCat('')}>
             <div className="title">全部分类</div>
           </div>
           {cats.map((c) => (
-            <div key={c.id} className="row-item" style={{ cursor: 'pointer', background: activeCat === c.id ? 'var(--primary-weak)' : '#fff' }} onClick={() => { setActiveCat(c.id); setTimeout(load, 0); }}>
+            <div key={c.id} className="row-item" style={{ cursor: 'pointer', background: activeCat === c.id ? 'var(--primary-weak)' : '#fff' }} onClick={() => switchCat(c.id)}>
               <div className="title">{c.name_zh || c.id}</div>
             </div>
           ))}

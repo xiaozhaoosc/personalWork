@@ -16,6 +16,12 @@ function useLaunch() {
   return { msg, setMsg, launch };
 }
 
+interface FilterOpts {
+  query?: string;
+  source?: string;
+  disabled?: string;
+}
+
 export default function Skills() {
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState('');
@@ -24,14 +30,25 @@ export default function Skills() {
   const [sel, setSel] = useState<any>(null);
   const { msg, setMsg, launch } = useLaunch();
 
-  async function load() {
+  // 显式传参，避免 stale closure：opts 优先于当前 state
+  async function load(opts?: FilterOpts) {
+    const query = opts?.query ?? q;
+    const src = opts?.source ?? source;
+    const dis = opts?.disabled ?? disabled;
     const params = new URLSearchParams();
-    if (q) params.set('query', q);
-    if (source) params.set('source', source);
-    if (disabled) params.set('disabled', disabled);
+    if (query) params.set('query', query);
+    if (src) params.set('source', src);
+    if (dis) params.set('disabled', dis);
     setRows(await getJson('/skills?' + params.toString()));
   }
   useEffect(() => { load(); }, []);
+
+  function reset() {
+    setQ('');
+    setSource('');
+    setDisabled('');
+    load({ query: '', source: '', disabled: '' });
+  }
 
   async function openDetail(slug: string) {
     setSel(await getJson('/skills/' + encodeURIComponent(slug)));
@@ -42,22 +59,22 @@ export default function Skills() {
   return (
     <>
       <div className="page-head">
-        <div><h1>技能中心</h1><p>已安装的 {rows.length} 个技能（实时镜像自 WorkBuddy 缓存）</p></div>
+        <div><h1>技能中心</h1><p>已匹配 {rows.length} 个技能（实时镜像自 WorkBuddy 缓存）</p></div>
       </div>
 
       <div className="toolbar">
         <input type="search" placeholder="搜索名称 / 描述 / slug" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
-        <select value={source} onChange={(e) => setSource(e.target.value)}>
+        <select value={source} onChange={(e) => { setSource(e.target.value); load({ source: e.target.value }); }}>
           <option value="">全部来源</option>
           {sources.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={disabled} onChange={(e) => setDisabled(e.target.value)}>
+        <select value={disabled} onChange={(e) => { setDisabled(e.target.value); load({ disabled: e.target.value }); }}>
           <option value="">启用状态</option>
           <option value="0">启用</option>
           <option value="1">禁用</option>
         </select>
-        <button className="btn primary" onClick={load}>搜索</button>
-        <button className="btn" onClick={() => { setQ(''); setSource(''); setDisabled(''); setTimeout(load, 0); }}>重置</button>
+        <button className="btn primary" onClick={() => load()}>搜索</button>
+        <button className="btn" onClick={reset}>重置</button>
       </div>
 
       <div className="list">
