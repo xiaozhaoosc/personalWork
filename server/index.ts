@@ -252,6 +252,56 @@ app.delete('/api/automation-drafts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 导出草稿为 WorkBuddy 可用的创建材料：对齐 automations 字段的 JSON + 可粘贴的中文创建指令
+app.get('/api/automation-drafts/:id/export', (req, res) => {
+  const d = db.prepare('SELECT * FROM automation_drafts WHERE id=?').get(req.params.id) as any;
+  if (!d) return res.status(404).json({ error: 'not found' });
+
+  const skills: string[] = JSON.parse(d.skills_json || '[]');
+  const connectorIds: string[] = JSON.parse(d.connector_ids_json || '[]');
+  const cwds: string[] = (d.cwds || '')
+    .split(/[,;，；]/)
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+
+  const isOnce = d.schedule_type === 'once';
+  const payload: any = {
+    name: d.name,
+    prompt: d.prompt || '',
+    scheduleType: isOnce ? 'once' : 'recurring',
+    status: 'PAUSED',
+    skills,
+    connectorIds,
+  };
+  if (isOnce) payload.scheduledAt = d.scheduled_at || undefined;
+  else payload.rrule = d.rrule || undefined;
+  if (d.expert_id) payload.expertId = d.expert_id;
+  if (cwds.length) payload.cwds = cwds;
+  if (d.model_id) payload.modelId = d.model_id;
+
+  const plan = isOnce
+    ? `一次性执行：${d.scheduled_at || '（未设置时间，请补充）'}`
+    : `周期执行（RRULE: ${d.rrule || '（未设置，请补充）'}）`;
+  const prompt = [
+    '请帮我创建一个自动化任务，创建后保持暂停（PAUSED）状态，待我确认后再启用：',
+    `- 名称：${d.name}`,
+    `- 执行内容：${d.prompt || '（无）'}`,
+    `- 计划：${plan}`,
+    skills.length ? `- 使用技能：${skills.join('、')}` : '',
+    d.expert_id ? `- 使用专家：${d.expert_id}` : '',
+    cwds.length ? `- 工作目录：${cwds.join('、')}` : '',
+    d.model_id ? `- 模型：${d.model_id}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  res.json({
+    json: payload,
+    prompt,
+    note: 'deep-link 协议尚未核实（OQ1），请将指令粘贴到 WorkBuddy 对话中创建；JSON 仅供程序化使用。',
+  });
+});
+
 // ---------- 导入 / 刷新 ----------
 app.post('/api/import', (_req, res) => {
   const r = importSkillsExperts();
