@@ -10,7 +10,7 @@
     "server": "tsx server/index.ts",
     "build": "vite build",
     "start": "tsx server/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -187,6 +187,23 @@ app.delete('/api/tasks/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 看板拖拽：批量更新状态与排序（事务）
+app.post('/api/tasks/reorder', (req, res) => {
+  const updates: any[] = req.body?.updates || [];
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const upd = db.prepare('UPDATE tasks SET status=?, order_idx=?, updated_at=? WHERE id=?');
+    for (const u of updates) {
+      upd.run(u.status, u.order_idx ?? 0, Date.now(), u.id);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  res.json(db.prepare('SELECT * FROM tasks ORDER BY order_idx, created_at').all());
+});
+
 // ---------- 自动化（只读镜像 WorkBuddy） ----------
 app.get('/api/automations', (_req, res) => {
   res.json(getAutomations());

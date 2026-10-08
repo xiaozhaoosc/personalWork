@@ -9,8 +9,8 @@ let wbDb: DatabaseSync | null = null;
 function getWbDb(): DatabaseSync | null {
   if (!existsSync(wbDbPath)) return null;
   if (!wbDb) {
-    // 严格只读，绝不在本库写 WorkBuddy 运行时数据
-    wbDb = new DatabaseSync(wbDbPath, { readonly: true });
+    // 严格只读，绝不在本库写 WorkBuddy 运行时数据（选项名必须是 readOnly）
+    wbDb = new DatabaseSync(wbDbPath, { readOnly: true });
   }
   return wbDb;
 }
