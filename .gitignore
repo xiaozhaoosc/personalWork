@@ -1,0 +1,18 @@
+# ---- 敏感数据：绝不入库 ----
+.env
+.env.*
+!.env.example
+
+# ---- WorkBuddy 本地数据 ----
+.workbuddy/
+*.db
+*.db-shm
+*.db-wal
+
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.DS_Store
