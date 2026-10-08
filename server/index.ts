@@ -64,10 +64,15 @@ app.get('/api/skills', (req, res) => {
     params.push(Number(disabled));
   }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize as string) || 50));
+  const total = (db.prepare(`SELECT COUNT(*) c FROM skills ${where}`).get(...params) as any).c;
   const rows = db
-    .prepare(`SELECT slug,name,description_zh,source,type,disabled,version,marketplace_source FROM skills ${where} ORDER BY name`)
-    .all(...params);
-  res.json(rows);
+    .prepare(
+      `SELECT slug,name,description_zh,source,type,disabled,version,marketplace_source FROM skills ${where} ORDER BY name LIMIT ? OFFSET ?`
+    )
+    .all(...params, pageSize, (page - 1) * pageSize);
+  res.json({ rows, total, page, pageSize });
 });
 
 app.get('/api/skills/:slug', (req, res) => {
@@ -79,7 +84,12 @@ app.get('/api/skills/:slug', (req, res) => {
 
 // ---------- 专家目录 ----------
 app.get('/api/expert-categories', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM expert_categories ORDER BY id').all();
+  const rows = db
+    .prepare(
+      `SELECT c.*, (SELECT COUNT(*) FROM experts e WHERE e.category_id = c.id) AS count
+       FROM expert_categories c ORDER BY c.id`
+    )
+    .all();
   res.json(rows);
 });
 
@@ -106,12 +116,15 @@ app.get('/api/experts', (req, res) => {
     params.push(`%"${tag}"%`, `%"${tag}"%`);
   }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize as string) || 50));
+  const total = (db.prepare(`SELECT COUNT(*) c FROM experts ${where}`).get(...params) as any).c;
   const rows = db
     .prepare(
-      `SELECT id,display_name_zh,display_name_en,profession_zh,category_id,expert_type,is_opc,avatar FROM experts ${where} ORDER BY display_name_zh`
+      `SELECT id,display_name_zh,display_name_en,profession_zh,category_id,expert_type,is_opc,avatar FROM experts ${where} ORDER BY display_name_zh LIMIT ? OFFSET ?`
     )
-    .all(...params);
-  res.json(rows);
+    .all(...params, pageSize, (page - 1) * pageSize);
+  res.json({ rows, total, page, pageSize });
 });
 
 app.get('/api/experts/:id', (req, res) => {
@@ -277,7 +290,15 @@ app.post('/api/launch', (req, res) => {
 // ---------- 最近使用 ----------
 app.get('/api/recent', (_req, res) => {
   const rows = db
-    .prepare('SELECT * FROM recent_items ORDER BY last_opened_at DESC LIMIT 12')
+    .prepare(
+      `SELECT r.kind, r.ref_key, r.last_opened_at,
+              CASE r.kind
+                WHEN 'skill' THEN (SELECT name FROM skills WHERE slug = r.ref_key)
+                WHEN 'expert' THEN COALESCE((SELECT display_name_zh FROM experts WHERE id = r.ref_key),
+                                            (SELECT display_name_en FROM experts WHERE id = r.ref_key))
+              END AS name
+       FROM recent_items r ORDER BY r.last_opened_at DESC LIMIT 12`
+    )
     .all();
   res.json(rows);
 });
@@ -313,6 +334,17 @@ if (existsSync(dist)) {
     res.sendFile(join(dist, 'index.html'));
   });
 }
+
+// API 404 统一返回 JSON（而非 Express 默认 HTML）
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'not found' });
+});
+
+// 统一错误处理：返回 JSON，避免把堆栈暴露成 HTML 页
+app.use((err: any, _req: any, res: any, _next: any) => {
+  console.error('[server] error:', err?.message || err);
+  res.status(500).json({ error: err?.message || 'internal error' });
+});
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`[server] 个人工作台 API 运行于 http://localhost:${PORT}`);

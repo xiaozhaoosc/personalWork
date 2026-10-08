@@ -85,7 +85,7 @@ export default function Dashboard() {
               {recent.map((r, i) => (
                 <div key={i} className="row-item" style={{ cursor: 'default' }}>
                   <span className={`tag ${r.kind === 'skill' ? 'blue' : ''}`}>{r.kind}</span>
-                  <div className="title">{r.ref_key}</div>
+                  <div className="title">{r.name || r.ref_key}</div>
                 </div>
               ))}
             </div>

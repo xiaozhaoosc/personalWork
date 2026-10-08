@@ -1,32 +1,23 @@
 import { useEffect, useState } from 'react';
-import { getJson, sendJson } from '../api';
-
-function useLaunch() {
-  const [msg, setMsg] = useState('');
-  async function launch(type: string, ref: string) {
-    const data = await sendJson('/launch', 'POST', { type, ref });
-    window.open(data.deepLink, '_blank');
-    try {
-      await navigator.clipboard.writeText(data.fallbackPrompt);
-      setMsg('已尝试唤起 WorkBuddy，并已复制启动提示到剪贴板。\n\n' + data.fallbackPrompt);
-    } catch {
-      setMsg(data.fallbackPrompt);
-    }
-  }
-  return { msg, setMsg, launch };
-}
+import { getJson } from '../api';
+import { useLaunch } from '../hooks/useLaunch';
 
 interface FilterOpts {
   query?: string;
   source?: string;
   disabled?: string;
+  page?: number;
 }
+
+const PAGE_SIZE = 50;
 
 export default function Skills() {
   const [rows, setRows] = useState<any[]>([]);
   const [q, setQ] = useState('');
   const [source, setSource] = useState('');
   const [disabled, setDisabled] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [sel, setSel] = useState<any>(null);
   const { msg, setMsg, launch } = useLaunch();
 
@@ -35,11 +26,15 @@ export default function Skills() {
     const query = opts?.query ?? q;
     const src = opts?.source ?? source;
     const dis = opts?.disabled ?? disabled;
+    const pg = opts?.page ?? page;
     const params = new URLSearchParams();
     if (query) params.set('query', query);
     if (src) params.set('source', src);
     if (dis) params.set('disabled', dis);
-    setRows(await getJson('/skills?' + params.toString()));
+    if (pg > 1) params.set('page', String(pg));
+    const data = await getJson('/skills?' + params.toString());
+    setRows(data.rows);
+    setTotal(data.total);
   }
   useEffect(() => { load(); }, []);
 
@@ -47,33 +42,41 @@ export default function Skills() {
     setQ('');
     setSource('');
     setDisabled('');
-    load({ query: '', source: '', disabled: '' });
+    setPage(1);
+    load({ query: '', source: '', disabled: '', page: 1 });
   }
 
   async function openDetail(slug: string) {
     setSel(await getJson('/skills/' + encodeURIComponent(slug)));
   }
 
+  function goPage(p: number) {
+    setPage(p);
+    load({ page: p });
+    window.scrollTo({ top: 0 });
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const sources = ['userSettings', 'builtin', 'plugin'];
 
   return (
     <>
       <div className="page-head">
-        <div><h1>技能中心</h1><p>已匹配 {rows.length} 个技能（实时镜像自 WorkBuddy 缓存）</p></div>
+        <div><h1>技能中心</h1><p>已匹配 {total} 个技能（实时镜像自 WorkBuddy 缓存）</p></div>
       </div>
 
       <div className="toolbar">
-        <input type="search" placeholder="搜索名称 / 描述 / slug" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
-        <select value={source} onChange={(e) => { setSource(e.target.value); load({ source: e.target.value }); }}>
+        <input type="search" placeholder="搜索名称 / 描述 / slug" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setPage(1), load({ page: 1 }))} />
+        <select value={source} onChange={(e) => { setSource(e.target.value); setPage(1); load({ source: e.target.value, page: 1 }); }}>
           <option value="">全部来源</option>
           {sources.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={disabled} onChange={(e) => { setDisabled(e.target.value); load({ disabled: e.target.value }); }}>
+        <select value={disabled} onChange={(e) => { setDisabled(e.target.value); setPage(1); load({ disabled: e.target.value, page: 1 }); }}>
           <option value="">启用状态</option>
           <option value="0">启用</option>
           <option value="1">禁用</option>
         </select>
-        <button className="btn primary" onClick={() => load()}>搜索</button>
+        <button className="btn primary" onClick={() => { setPage(1); load({ page: 1 }); }}>搜索</button>
         <button className="btn" onClick={reset}>重置</button>
       </div>
 
@@ -90,6 +93,14 @@ export default function Skills() {
         ))}
         {rows.length === 0 && <div className="empty">没有匹配的技能</div>}
       </div>
+
+      {total > PAGE_SIZE && (
+        <div className="toolbar" style={{ marginTop: 14 }}>
+          <button className="btn sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>上一页</button>
+          <span className="muted">第 {page} / {totalPages} 页 · 共 {total} 条</span>
+          <button className="btn sm" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>下一页</button>
+        </div>
+      )}
 
       {sel && (
         <div className="modal-mask" onClick={() => setSel(null)}>

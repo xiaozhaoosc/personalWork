@@ -14,6 +14,12 @@ export default function Automations() {
     try { return JSON.parse(json); } catch { return []; }
   }
 
+  function fmtTime(v: any) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    return new Date(n).toLocaleString('zh-CN');
+  }
+
   return (
     <>
       <div className="page-head">
@@ -40,7 +46,7 @@ export default function Automations() {
                   {parseSkills(a.skills_json).join(', ') || '—'}
                   {a.expert_id ? ` · 专家:${a.expert_id}` : ''}
                 </td>
-                <td className="muted">{a.created_at || '—'}</td>
+                <td className="muted">{fmtTime(a.created_at)}</td>
               </tr>
             ))}
           </tbody>

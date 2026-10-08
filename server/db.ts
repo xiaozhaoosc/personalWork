@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const WORKBENCH_DB_PATH =
-  process.env.WORKBENCH_DB_PATH || join(process.cwd(), 'workbench.db');
+  process.env.WORKBENCH_DB_PATH || join(__dirname, '..', 'workbench.db');
 
 export const db = new DatabaseSync(WORKBENCH_DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');

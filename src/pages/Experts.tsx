@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
-import { getJson, sendJson } from '../api';
+import { getJson } from '../api';
+import { useLaunch } from '../hooks/useLaunch';
 
 interface FilterOpts {
   categoryId?: string;
   query?: string;
   isOpc?: boolean;
+  page?: number;
 }
+
+const PAGE_SIZE = 50;
 
 export default function Experts() {
   const [cats, setCats] = useState<any[]>([]);
@@ -13,19 +17,25 @@ export default function Experts() {
   const [activeCat, setActiveCat] = useState('');
   const [q, setQ] = useState('');
   const [isOpc, setIsOpc] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [sel, setSel] = useState<any>(null);
-  const [msg, setMsg] = useState('');
+  const { msg, setMsg, launch } = useLaunch();
 
   // 显式传参，避免 stale closure：opts 优先于当前 state
   async function load(opts?: FilterOpts) {
     const query = opts?.query ?? q;
     const categoryId = opts?.categoryId ?? activeCat;
     const opc = opts?.isOpc ?? isOpc;
+    const pg = opts?.page ?? page;
     const params = new URLSearchParams();
     if (query) params.set('query', query);
     if (categoryId) params.set('categoryId', categoryId);
     if (opc) params.set('isOpc', '1');
-    setRows(await getJson('/experts?' + params.toString()));
+    if (pg > 1) params.set('page', String(pg));
+    const data = await getJson('/experts?' + params.toString());
+    setRows(data.rows);
+    setTotal(data.total);
   }
 
   useEffect(() => {
@@ -35,48 +45,52 @@ export default function Experts() {
 
   function switchCat(id: string) {
     setActiveCat(id);
-    load({ categoryId: id });
+    setPage(1);
+    load({ categoryId: id, page: 1 });
   }
 
   function toggleOpc(checked: boolean) {
     setIsOpc(checked);
-    load({ isOpc: checked });
+    setPage(1);
+    load({ isOpc: checked, page: 1 });
   }
 
   async function openDetail(id: string) {
     setSel(await getJson('/experts/' + encodeURIComponent(id)));
   }
 
-  function launch(ref: string) {
-    sendJson('/launch', 'POST', { type: 'expert', ref }).then((data) => {
-      window.open(data.deepLink, '_blank');
-      navigator.clipboard?.writeText(data.fallbackPrompt).catch(() => {});
-      setMsg(data.fallbackPrompt);
-    });
+  function goPage(p: number) {
+    setPage(p);
+    load({ page: p });
+    window.scrollTo({ top: 0 });
   }
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <>
       <div className="page-head">
-        <div><h1>专家目录</h1><p>已匹配 {rows.length} 位专家（共 {cats.length} 个分类）</p></div>
+        <div><h1>专家目录</h1><p>已匹配 {total} 位专家（共 {cats.length} 个分类）</p></div>
       </div>
 
       <div className="toolbar">
-        <input type="search" placeholder="搜索姓名 / 职业 / 描述" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
+        <input type="search" placeholder="搜索姓名 / 职业 / 描述" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setPage(1), load({ page: 1 }))} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input type="checkbox" checked={isOpc} onChange={(e) => toggleOpc(e.target.checked)} /> 仅 OPC
         </label>
-        <button className="btn primary" onClick={() => load()}>搜索</button>
+        <button className="btn primary" onClick={() => { setPage(1); load({ page: 1 }); }}>搜索</button>
       </div>
 
       <div style={{ display: 'flex', gap: 16 }}>
-        <aside style={{ width: 180, flexShrink: 0 }} className="card" >
+        <aside style={{ width: 200, flexShrink: 0 }} className="card" >
           <div className="row-item" style={{ cursor: 'pointer', background: activeCat === '' ? 'var(--primary-weak)' : '#fff' }} onClick={() => switchCat('')}>
-            <div className="title">全部分类</div>
+            <div className="title" style={{ flex: 1 }}>全部分类</div>
+            <span className="tag blue">{cats.reduce((a, c) => a + (c.count || 0), 0)}</span>
           </div>
           {cats.map((c) => (
             <div key={c.id} className="row-item" style={{ cursor: 'pointer', background: activeCat === c.id ? 'var(--primary-weak)' : '#fff' }} onClick={() => switchCat(c.id)}>
-              <div className="title">{c.name_zh || c.id}</div>
+              <div className="title" style={{ flex: 1 }}>{c.name_zh || c.id}</div>
+              <span className="tag blue">{c.count}</span>
             </div>
           ))}
         </aside>
@@ -94,6 +108,14 @@ export default function Experts() {
             ))}
             {rows.length === 0 && <div className="empty">没有匹配的专家</div>}
           </div>
+
+          {total > PAGE_SIZE && (
+            <div className="toolbar" style={{ marginTop: 14 }}>
+              <button className="btn sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>上一页</button>
+              <span className="muted">第 {page} / {totalPages} 页 · 共 {total} 条</span>
+              <button className="btn sm" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>下一页</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -112,7 +134,7 @@ export default function Experts() {
               </div>
             )}
             <div className="toolbar" style={{ marginTop: 14 }}>
-              <button className="btn primary" onClick={() => launch(sel.id)}>开启专家对话</button>
+              <button className="btn primary" onClick={() => launch('expert', sel.id)}>开启专家对话</button>
               {sel.agent_name && <span className="muted">agent: {sel.agent_name}</span>}
             </div>
           </div>
