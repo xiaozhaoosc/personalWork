@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getJson } from '../api';
 import { useLaunch } from '../hooks/useLaunch';
+import Avatar from '../components/Avatar';
+import Toast from '../components/Toast';
 
 interface FilterOpts {
   categoryId?: string;
@@ -20,7 +22,8 @@ export default function Experts() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [sel, setSel] = useState<any>(null);
-  const { msg, setMsg, launch } = useLaunch();
+  const [remoteAvatars, setRemoteAvatars] = useState(true);
+  const { msg, setMsg, toast, launch, busy } = useLaunch();
 
   // 显式传参，避免 stale closure：opts 优先于当前 state
   async function load(opts?: FilterOpts) {
@@ -40,6 +43,9 @@ export default function Experts() {
 
   useEffect(() => {
     getJson('/expert-categories').then(setCats).catch(() => {});
+    getJson('/prefs')
+      .then((p: any) => setRemoteAvatars(p?.avatarsRemote !== '0'))
+      .catch(() => {});
     load();
   }, []);
 
@@ -99,6 +105,14 @@ export default function Experts() {
           <div className="list">
             {rows.map((e) => (
               <div key={e.id} className="row-item" onClick={() => openDetail(e.id)}>
+                <Avatar
+                  expertId={e.id}
+                  name={e.display_name_zh || e.display_name_en}
+                  avatarPath={e.avatar}
+                  expertType={e.expert_type}
+                  size={36}
+                  remoteEnabled={remoteAvatars}
+                />
                 <div style={{ flex: 1 }}>
                   <div className="title">{e.display_name_zh || e.display_name_en}</div>
                   <div className="meta">{e.profession_zh || ''}</div>
@@ -123,8 +137,20 @@ export default function Experts() {
         <div className="modal-mask" onClick={() => setSel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <button className="close" onClick={() => setSel(null)}>×</button>
-            <h2>{sel.display_name_zh || sel.display_name_en}</h2>
-            <div className="meta">{sel.profession_zh || sel.profession_en} · {sel.expert_type || ''}</div>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8 }}>
+              <Avatar
+                expertId={sel.id}
+                name={sel.display_name_zh || sel.display_name_en}
+                avatarPath={sel.avatar}
+                expertType={sel.expert_type}
+                size={64}
+                remoteEnabled={remoteAvatars}
+              />
+              <div>
+                <h2 style={{ margin: 0 }}>{sel.display_name_zh || sel.display_name_en}</h2>
+                <div className="meta">{sel.profession_zh || sel.profession_en} · {sel.expert_type || ''}</div>
+              </div>
+            </div>
             <p>{sel.description_zh || sel.description_en || '（无描述）'}</p>
             {sel.default_init_prompt_zh && (<><strong>初始化提示：</strong><div className="code">{sel.default_init_prompt_zh}</div></>)}
             {sel.quick_prompts_zh && (
@@ -134,7 +160,9 @@ export default function Experts() {
               </div>
             )}
             <div className="toolbar" style={{ marginTop: 14 }}>
-              <button className="btn primary" onClick={() => launch('expert', sel.id)}>开启专家对话</button>
+              <button className="btn primary" disabled={busy} onClick={() => launch('expert', sel.id)}>
+                {busy ? '正在唤起…' : '开启专家对话'}
+              </button>
               {sel.agent_name && <span className="muted">agent: {sel.agent_name}</span>}
             </div>
           </div>
@@ -151,6 +179,8 @@ export default function Experts() {
           </div>
         </div>
       )}
+
+      <Toast text={toast} />
     </>
   );
 }

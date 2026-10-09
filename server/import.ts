@@ -1,49 +1,32 @@
-import { db } from './db.ts';
+import type { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { asInt, withTransaction } from './sqlite-util.ts';
+import { loadEnvFile } from './env.ts';
+import { loadConfig } from './config.ts';
+import { openDb, runMigrations } from './db.ts';
 
-export const WORKBUDDY_USER_DIR =
-  process.env.WORKBUDDY_USER_DIR || join(homedir(), '.workbuddy');
-
-function asInt(v: unknown): number | null {
-  if (v == null) return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** 事务包裹：任何一条失败即整体 ROLLBACK，保证旧数据不被破坏（PRD：导入失败不破坏旧数据） */
-function withTransaction<T>(fn: () => T): T {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = fn();
-    db.exec('COMMIT');
-    return result;
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
-}
-
-export function importSkillsExperts(): {
-  skills: number;
-  experts: number;
-  categories: number;
-  warnings: string[];
-} {
+/**
+ * 从 WorkBuddy 缓存只读导入技能与专家。
+ * db 与 userDir 均由调用方注入（便于测试使用临时库/临时目录）。
+ */
+export function importSkillsExperts(
+  db: DatabaseSync,
+  userDir: string
+): { skills: number; experts: number; categories: number; warnings: string[] } {
   const warnings: string[] = [];
   let skillCount = 0;
   let expertCount = 0;
   let categoryCount = 0;
 
   // ---- 技能 ----
-  const skillCache = join(WORKBUDDY_USER_DIR, '.skill-list-cache.json');
+  const skillCache = join(userDir, '.skill-list-cache.json');
   if (existsSync(skillCache)) {
     try {
       const data = JSON.parse(readFileSync(skillCache, 'utf8'));
       const results: any[] = data.results || [];
-      withTransaction(() => {
+      withTransaction(db, () => {
         db.exec('DELETE FROM skills;');
         const ins = db.prepare(
           `INSERT INTO skills
@@ -79,14 +62,14 @@ export function importSkillsExperts(): {
   }
 
   // ---- 专家 ----
-  const manifest = join(WORKBUDDY_USER_DIR, 'app', 'cache', 'experts', 'manifest.json');
+  const manifest = join(userDir, 'app', 'cache', 'experts', 'manifest.json');
   if (existsSync(manifest)) {
     try {
       const data = JSON.parse(readFileSync(manifest, 'utf8'));
       const categories: any[] = data.categories || [];
       const experts: any[] = data.experts || [];
 
-      withTransaction(() => {
+      withTransaction(db, () => {
         db.exec('DELETE FROM expert_categories; DELETE FROM experts;');
         const insCat = db.prepare(
           `INSERT INTO expert_categories (id,name_zh,name_en,description_zh,description_en)
@@ -159,8 +142,12 @@ export function importSkillsExperts(): {
   return { skills: skillCount, experts: expertCount, categories: categoryCount, warnings };
 }
 
-// 直接 `tsx server/import.ts` 时可独立运行（Windows 下 pathToFileURL 才能正确比较）
+// 直接 `tsx server/import.ts` 时可独立运行
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const r = importSkillsExperts();
-  console.log('导入完成:', r);
+  loadEnvFile();
+  const cfg = loadConfig();
+  const d = openDb(cfg.workbenchDbPath);
+  runMigrations(d);
+  console.log('导入完成:', importSkillsExperts(d, cfg.workbuddyUserDir));
+  d.close();
 }

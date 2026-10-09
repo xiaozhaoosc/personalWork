@@ -10,7 +10,11 @@
     "server": "tsx server/index.ts",
     "build": "vite build",
     "start": "tsx server/index.ts",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "express": "^4.21.2",

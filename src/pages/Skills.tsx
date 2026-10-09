@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getJson } from '../api';
 import { useLaunch } from '../hooks/useLaunch';
+import Toast from '../components/Toast';
 
 interface FilterOpts {
   query?: string;
@@ -19,7 +20,7 @@ export default function Skills() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [sel, setSel] = useState<any>(null);
-  const { msg, setMsg, launch } = useLaunch();
+  const { msg, setMsg, toast, launch, busy } = useLaunch();
 
   // 显式传参，避免 stale closure：opts 优先于当前 state
   async function load(opts?: FilterOpts) {
@@ -116,7 +117,9 @@ export default function Skills() {
               </div>
             )}
             <div className="toolbar" style={{ marginTop: 14 }}>
-              <button className="btn primary" onClick={() => launch('skill', sel.slug)}>启动技能</button>
+              <button className="btn primary" disabled={busy} onClick={() => launch('skill', sel.slug)}>
+                {busy ? '正在唤起…' : '启动技能'}
+              </button>
               {sel.file_path && <span className="muted">{sel.file_path}</span>}
             </div>
           </div>
@@ -135,6 +138,7 @@ export default function Skills() {
           </div>
         </div>
       )}
+      <Toast text={toast} />
     </>
   );
 }
