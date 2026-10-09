@@ -102,7 +102,8 @@
 
 - 分类侧栏（15 类，带计数）；搜索（displayName/profession/description/agentName）；筛选：`categoryId`、`tags`、`isOPC`、`expertType`。
 - 详情页：中英职业/描述、头像、默认初始化提示、快捷提示、所属 plugin/agentName；「开启专家对话」按钮。
-- **验收**：448 条全部可检索；分类计数与盘点一致。
+- **头像（双态，2026-10-09 核实后落地，见 §15）**：头像图片**不在本地**（448 条记录磁盘上 0 张），经后端白名单代理远程 CDN 并缓存；任何不可用情况回退为「首字母 + 固定色相」文字头像（`expertType=team` 用圆角方形，其余圆形）。设置页可一键关闭远程拉取，关闭后零网络请求。
+- **验收**：448 条全部可检索；分类计数与盘点一致；头像在可用时显示图片、不用时显示文字头像且无破图。
 
 ### 5.4 任务/待办 Tasks（P1）
 
@@ -177,7 +178,10 @@
 | GET/POST/PATCH/DELETE | /api/automation-drafts | 编排草稿 CRUD |
 | POST | /api/import | 全量重导技能/专家 |
 | POST | /api/automations/refresh | 刷新自动化镜像 |
-| POST | /api/launch | 启动技能/专家（deep-link 或回退） |
+| POST | /api/launch | 启动技能/专家（服务端 spawn 已验证 deep-link + 剪贴板回退），返回 `{ok,type,ref,url,mode:'spawned'\|'url-only',fallbackPrompt,spawn,note}`；未命中记录 404、非法 ref 400 |
+| GET | /api/launch | 启动能力诊断：`{exePath,available,candidates}`，供设置页展示 |
+| GET | /api/expert-avatars/:id | 专家头像代理（id 白名单查表 → 磁盘缓存 → 远程 CDN），带 `X-Cache: hit\|miss\|neg` |
+| GET | /api/expert-avatars-info | 头像诊断：`{base,count,cacheDir,remoteEnabled}` |
 | GET/PUT | /api/prefs | 应用偏好 |
 
 
@@ -319,9 +323,13 @@ CREATE INDEX IF NOT EXISTS idx_recent_items_time ON recent_items(last_opened_at)
 
 ### 9.3 启动技能 / 开启专家对话（不重写引擎）
 
-- **首选**：WorkBuddy 本地 URL Scheme 或 CLI（如 `workbuddy://skill/<slug>` 或 `workbuddy --skill <slug>` / `workbuddy --expert <id>`）——**具体协议需在实现前核实（见 §11 OQ1）**。
-- **回退**：复制「启动提示/专家初始化提示」到剪贴板并唤起 WorkBuddy 窗口，用户粘贴即开始。
-- **自动化创建**：`automation_drafts` → 导出为 WorkBuddy 可识别的创建命令/JSON → 经 deep-link 或剪贴板交给 WorkBuddy 真正落库。
+> 2026-10-09 核实结论（详见 §15）：`workbuddy://` 协议确实存在，且**没有**任何"启动指定技能"或"注入并自动发送 prompt"的路由与 CLI 参数。因此本节按"能跳转 + 提示词靠剪贴板"落地。
+
+- **专家（可直达）**：服务端 `spawn WorkBuddy.exe "workbuddy://experts?expertId=<id>"`。Electron 的 `second-instance` 会扫描 argv 接收该 URL，**不依赖系统是否注册协议**；URL 只由「通过字符白名单 + 在本库命中」的记录构造。
+- **技能（只能开列表页）**：WorkBuddy 没有 per-skill 路由，改为打开 `workbuddy://skills?tab=installed`，并复制该技能的提示词。
+- **回退**：未检测到 `WorkBuddy.exe` 时返回 `mode: 'url-only'`，前端改用 `window.open` + 剪贴板。
+- **提示词始终需要人工粘贴**：这是 WorkBuddy 的能力边界，非本工作台缺陷。成功唤起且剪贴板可用时只给 2.5 秒轻提示，不弹窗。
+- **自动化创建**：`automation_drafts` → 导出为与 WorkBuddy `automations` 字段对齐的 JSON + 可粘贴的中文创建指令（`status` 建议 `PAUSED`）。
 
 ---
 
@@ -342,8 +350,8 @@ CREATE INDEX IF NOT EXISTS idx_recent_items_time ON recent_items(last_opened_at)
 
 - **R1 缓存时效**：`.skill-list-cache.json` / `manifest.json` 是 WorkBuddy 生成物，可能清理或改格式（当前 version 6 / manifest 版本 2）。缓解：导入容错 + 版本检测 + 手动重导。
 - **R2 只读安全**：读 `workbuddy.db` 须严格 `mode=ro`，绝不在本库写它；WorkBuddy 升级可能改 automations 表结构（已到 0017 迁移）。缓解：只读 SELECT + 结构变更告警。
-- **OQ1 deep-link 协议**：WorkBuddy 是否暴露 `workbuddy://` 或 CLI 参数启动指定技能/专家？实现前须核实（决定 §9.3 走首选还是回退）。
-- **OQ2 头像/图标资源**：专家 `avatar`、技能 `iconUrl` 为相对/本地路径，UI 须按 WorkBuddy 资源根解析。
+- **OQ1 deep-link 协议 —— 已核实（2026-10-09，见 §15）**：结论为"部分可解"。可直达某位专家（`workbuddy://experts?expertId=`）；**无法**启动指定技能，也**无法**注入/自动发送 prompt。已据此替换掉早期实现里的无效路由 `workbuddy://skill/<slug>`、`workbuddy://expert/<ref>`。
+- **OQ2 头像/图标资源 —— 已核实（2026-10-09，见 §15）**：专家头像**不是本地文件**（448 条磁盘命中 0），而是相对远程 CDN 的路径（base 在 `metadata.json` 的嵌套 `sourceSignature` 中）。改为后端白名单代理 + 磁盘缓存 + 文字头像兜底。技能 `iconUrl` 是 Electron 私有 `local-file://` scheme，本轮不做。
 - **OQ3 多用户/设备**：当前单用户本地；云路径需账号体系（不在本期）。
 
 ---
@@ -351,10 +359,11 @@ CREATE INDEX IF NOT EXISTS idx_recent_items_time ON recent_items(last_opened_at)
 ## 12. 非功能性需求
 
 - **性能**：本地 SQLite 查询；列表分页（默认 50/页）；首屏 < 500ms。
-- **安全**：仅监听 127.0.0.1；对 `workbuddy.db` 强制只读连接；不收集/上传任何数据。
-- **可靠性**：迁移原子执行（事务）；导入失败不破坏旧数据；`workbench.db` 拷贝即完整备份。
-- **兼容性**：Windows 优先（当前环境）；路径均用绝对路径；缓存版本号校验。
-- **可维护性**：TypeScript 全栈类型；迁移文件纯 SQL，沿用 WorkBuddy 约定。
+- **安全**：仅监听 127.0.0.1；对 `workbuddy.db` 强制只读连接（选项名必须是 `readOnly`）；不收集/上传任何数据。
+- **隐私（出网）**：唯一出网行为是**可选**的专家头像拉取（腾讯云 CDN），可在设置页关闭；除此之外应用完全离线。
+- **可靠性**：迁移原子执行（事务）；导入失败不破坏旧数据；`workbench.db` 拷贝即完整备份。只读镜像在受限环境下自动降级为「热备份快照」，仍不写 WorkBuddy 的库。
+- **兼容性**：Windows 优先（当前环境）；路径均用绝对路径；缓存版本号校验；要求 Node ≥ 22（使用内置 `node:sqlite`）。
+- **可维护性**：TypeScript 全栈类型（`npm run typecheck` 覆盖 `src` + `server` + `tests`）；迁移文件纯 SQL，沿用 WorkBuddy 约定；**零新增运行时依赖**，测试用 Node 内置 `node:test`。
 
 ---
 
@@ -363,18 +372,47 @@ CREATE INDEX IF NOT EXISTS idx_recent_items_time ON recent_items(last_opened_at)
 - 导入准确率：技能/专家导入后与缓存 100% 一致（slug/id 对齐）。
 - 启动时延：仪表盘首屏 < 500ms（本地 SQLite 查询）。
 - 覆盖率：可检索 100% 的 57 技能与 448 专家。
-- 留存：重度用户日均打开 ≥ 1 次；deep-link 启动技能/专家成功率（OQ1 明确后度量）。
+- 留存：重度用户日均打开 ≥ 1 次；启动成功率按 `mode` 分布度量（`spawned` 占比），替代原「deep-link 成功率（OQ1 明确后度量）」。
 - 备份可用性：拷贝 `workbench.db` 可在另一环境恢复全部个人数据。
 
 ---
 
 ## 14. 执行安排（重要）
 
-按用户确认：**本回合只交付规格文档，不构建应用**。
+> 历史记录（初版）：本回合只交付规格文档，应用开发作为独立后续回合执行。
+> **现状（2026-10-09）**：M1~M3 已全部实现并落地，本文档已随实现持续更新；技术栈最终采用 **Node 内置 `node:sqlite`**（替代初版设想的 better-sqlite3，避免 native 编译，更契合"本地单文件/零额外依赖"）。
 
-1. **批准后立即执行**：将本 PRD 持久化为独立文档 `C:\Users\11304\WorkBuddy\个人工作台\spec\PRD-个人工作台.md` 并呈现给用户。
-2. 应用开发（M1~M3）作为**独立后续回合**执行，不在本回合范围内。
-3. 构建前需确认的两项决策（已在规格中给出推荐默认）：
+---
 
-- 技术栈是否采纳 Node + better-sqlite3 + React/Vite（默认推荐）；
-- OQ1 deep-link 协议：实现前先核实 WorkBuddy 是否暴露启动技能/专家的 handler，否则采用「复制提示 + 唤起窗口」回退。
+## 15. OQ1 / OQ2 核实结论（2026-10-09）
+
+### 15.1 OQ1 · deep-link —— 部分可解，且早期实现是错的
+
+**核实方法**：读 `resources/app.asar.unpacked/cli/product.json`、在 `resources/app.asar` 中检索路由表与 CLI flag 表、并在注册表不可读（`reg.exe` 被本机安全策略拦截）的情况下用 PID 集合对比做了 spawn 交接实验。
+
+| 结论 | 依据 |
+|---|---|
+| `workbuddy://` 协议存在 | `product.json` 声明 `deepLinkSchemes:["workbuddy"]`；主进程 `setAsDefaultProtocolClient` 自注册 |
+| 可用路由 | `workbuddy://experts?expertId=`、`skills?tab=installed`、`chat/<conversationId>`、`home`、`automation/run?automationId=`、`connectors`、`channels`、`teams/open`、`genie`、`agentmail` |
+| **不存在**启动技能的路由/参数 | CLI（`cli/bin/codebuddy`）约 60 个 flag 中无 `--skill`/`--expert`；无 `launch-skill`/`use-skill` 类路由 |
+| **不存在**注入/自动发送 prompt 的能力 | 无携带 prompt 的路由；`expert://<id>` 只是聊天内的 `@提及` token |
+| spawn 可行且不重复开实例 | Electron `second-instance` 扫描 argv 中的 `workbuddy://`；实测触发 launch 前后 WorkBuddy 的 PID 集合完全一致（新进程交接后即退出） |
+
+**因此修正**：早期实现里的 `workbuddy://skill/<slug>`、`workbuddy://expert/<ref>` **是无效路由**，已替换为上表的已验证路由；启动技能的语义如实降级为"打开已安装列表页 + 复制提示词"。
+
+### 15.2 OQ2 · 头像 —— 不在本地，只能代理远程 CDN
+
+| 结论 | 依据 |
+|---|---|
+| 本地 0 张头像 | 448 条 `avatar` 全部是 root-relative 路径；按 marketplace 根解析命中率 0/448 |
+| 真实来源是腾讯云 CDN | `metadata.json` 的 `sourceSignature.baseUrl` = `https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/expert-marketplace` |
+| 必须二次 parse | `sourceSignature` 在该文件里是**嵌套的 JSON 字符串** |
+| **必须字符串拼接** | `base + avatar` → 200；`new URL('/avatars/x.png', base)` 会抹掉 base 的路径段 → 403（已加回归测试钉住） |
+| `/avatars/*` 100% 可取，`/plugins/*` 全部 404 | 抽样与逐条核对结论；后者前端直接短路，不发请求 |
+
+**落地架构**：后端 id→URL 白名单代理（不拼接任何用户输入，只按 id 查表）→ 磁盘缓存（7 天 TTL、上游 404 记 24 小时负缓存、2MB 单图上限、200MB 总量上限、5 秒超时、非图片 Content-Type 一律拒收）→ 前端首字母文字头像兜底 → 设置页开关（关闭后零网络请求）。
+
+### 15.3 顺带修复的两个真实缺陷
+
+1. **只读选项名错误**：曾写成 `readonly`，正确是 `readOnly` —— 意味着对 `workbuddy.db` 的"只读"**实际未生效**。补 `typecheck` 后立即暴露并修复。
+2. **只读句柄失效 / WAL 受限**：缓存的只读连接会因 WorkBuddy 的 WAL checkpoint 失效；且在部分受限环境下只读查询会因无法访问 `-shm` 而报 `unable to open database file`（普通文件读取正常）。改为**每次调用开短连接并关闭**，失败时降级为「热备份快照」（复制 db+wal 到本机缓存再读），全程不写 WorkBuddy 的库。
